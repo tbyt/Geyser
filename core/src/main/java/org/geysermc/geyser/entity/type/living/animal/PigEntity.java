@@ -101,6 +101,8 @@ public class PigEntity extends AnimalEntity implements Tickable, ClientVehicle {
 
     @Override
     public void tick() {
+        super.tick();
+
         PlayerEntity player = getPlayerPassenger();
         if (player == null) {
             return;

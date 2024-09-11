@@ -38,6 +38,7 @@ import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerId;
 import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
 import org.cloudburstmc.protocol.bedrock.packet.MobArmorEquipmentPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MobEquipmentPacket;
+import org.cloudburstmc.protocol.bedrock.packet.MoveEntityDeltaPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket;
 import org.geysermc.geyser.entity.EntityDefinition;
 import org.geysermc.geyser.entity.attribute.GeyserAttributeType;
@@ -69,7 +70,7 @@ import java.util.*;
 
 @Getter
 @Setter
-public class LivingEntity extends Entity {
+public class LivingEntity extends Entity implements Tickable {
 
     protected ItemData helmet = ItemData.AIR;
     protected ItemData chestplate = ItemData.AIR;
@@ -101,6 +102,11 @@ public class LivingEntity extends Entity {
     @Getter(AccessLevel.NONE)
     @Setter(AccessLevel.NONE)
     private float attributeScale;
+
+    private float lerpX;
+    private float lerpY;
+    private float lerpZ;
+    private int lerpSteps;
 
     public LivingEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
         super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
@@ -278,6 +284,40 @@ public class LivingEntity extends Entity {
     }
 
     @Override
+    public void tick() {
+        lerpSteps();
+    }
+
+    protected void lerpSteps() {
+        if (this.lerpSteps > 0) {
+            float time = 1.0f / this.lerpSteps;
+            float lerpXTotal = lerp(time, this.position.getX(), this.lerpX);
+            float lerpYTotal = lerp(time, this.position.getY(), this.lerpY);
+            float lerpZTotal = lerp(time, this.position.getZ(), this.lerpZ);
+            setPosition(Vector3f.from(lerpXTotal, lerpYTotal, lerpZTotal));
+
+            MoveEntityDeltaPacket moveEntityPacket = new MoveEntityDeltaPacket();
+            moveEntityPacket.setRuntimeEntityId(geyserId);
+            moveEntityPacket.setX(position.getX());
+            moveEntityPacket.getFlags().add(MoveEntityDeltaPacket.Flag.HAS_X);
+            moveEntityPacket.setY(position.getY());
+            moveEntityPacket.getFlags().add(MoveEntityDeltaPacket.Flag.HAS_Y);
+            moveEntityPacket.setZ(position.getZ());
+            moveEntityPacket.getFlags().add(MoveEntityDeltaPacket.Flag.HAS_Z);
+            if (this.onGround) {
+                moveEntityPacket.getFlags().add(MoveEntityDeltaPacket.Flag.ON_GROUND);
+            }
+            session.sendUpstreamPacket(moveEntityPacket);
+
+            this.lerpSteps--;
+        }
+    }
+
+    private static float lerp(float time, float a, float b) {
+        return a + time * (b - a);
+    }
+
+    @Override
     public boolean isAlive() {
         return this.valid && health > 0f;
     }
@@ -304,7 +344,27 @@ public class LivingEntity extends Entity {
             clientVehicle.getVehicleComponent().moveRelative(relX, relY, relZ);
         }
 
-        super.moveRelative(relX, relY, relZ, yaw, pitch, headYaw, isOnGround);
+        // Logic analogous to Java Edition 1.21.
+        if (relX != 0 || relY != 0 || relZ != 0) {
+            this.lerpX = this.position.getX() + (float) relX;
+            this.lerpY = this.position.getY() + (float) relY;
+            this.lerpZ = this.position.getZ() + (float) relZ;
+            this.lerpSteps = 3;
+        }
+
+        // Rotation lerping does not seem to be an issue with Bedrock Edition as of 1.21.22
+
+        super.moveRelative(0, 0, 0, yaw, pitch, headYaw, isOnGround);
+    }
+
+    @Override
+    public void moveAbsolute(Vector3f position, float yaw, float pitch, float headYaw, boolean isOnGround, boolean teleported) {
+        this.lerpX = position.getX();
+        this.lerpY = position.getY();
+        this.lerpZ = position.getZ();
+        this.lerpSteps = 3;
+
+        super.moveAbsolute(this.position, yaw, pitch, headYaw, isOnGround, teleported);
     }
 
     @Override
