@@ -963,6 +963,8 @@ public class GeyserSession implements GeyserConnection, GeyserCommandSource {
         // Start ticking
         tickThread = eventLoop.scheduleAtFixedRate(this::tick, 50, 50, TimeUnit.MILLISECONDS);
 
+        this.protocol.setUseDefaultListeners(false);
+
         TcpSession downstream;
         if (geyser.getBootstrap().getSocketAddress() != null) {
             // We're going to connect through the JVM and not through TCP
@@ -996,6 +998,22 @@ public class GeyserSession implements GeyserConnection, GeyserCommandSource {
         }
         // We'll handle this since we have the registry data on hand
         downstream.setFlag(MinecraftConstants.SEND_BLANK_KNOWN_PACKS_RESPONSE, false);
+
+        // This isn't a great solution, but... we want to make sure the finish configuration packet cannot be sent
+        // before the KnownPacks packet.
+        this.downstream.getSession().addListener(new ClientListener(ProtocolState.LOGIN, loginEvent.transferring()) {
+            @Override
+            public void packetReceived(Session session, Packet packet) {
+                if (protocol.getInboundState() == ProtocolState.CONFIGURATION) {
+                    if (packet instanceof ClientboundFinishConfigurationPacket) {
+                        // Prevent
+                        GeyserSession.this.ensureInEventLoop(() -> GeyserSession.this.sendDownstreamPacket(new ServerboundFinishConfigurationPacket()));
+                        return;
+                    }
+                }
+                super.packetReceived(session, packet);
+            }
+        });
 
         downstream.addListener(new SessionAdapter() {
             @Override
