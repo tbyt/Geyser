@@ -1007,7 +1007,11 @@ public class GeyserSession implements GeyserConnection, GeyserCommandSource {
                 if (protocol.getInboundState() == ProtocolState.CONFIGURATION) {
                     if (packet instanceof ClientboundFinishConfigurationPacket) {
                         // Prevent
-                        GeyserSession.this.ensureInEventLoop(() -> GeyserSession.this.sendDownstreamPacket(new ServerboundFinishConfigurationPacket()));
+                        GeyserSession.this.ensureInEventLoop(() -> session.getChannel().eventLoop().execute(() -> {
+                            session.switchInboundState(() -> protocol.setInboundState(ProtocolState.GAME));
+                            session.send(new ServerboundFinishConfigurationPacket());
+                            session.switchOutboundState(() -> protocol.setOutboundState(ProtocolState.GAME));
+                        }));
                         return;
                     }
                 }
